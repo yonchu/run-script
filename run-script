@@ -1,0 +1,175 @@
+#!/bin/bash
+#
+# Start up script.
+#   Usage:
+#     run-script <start|stop|status> <script> [arguments]
+#
+# About lockfile:
+#   Usage:
+#     lockfile -sleeptime | -r retries |
+#              -l locktimeout | -s suspend | -!  | -ml | -mu | filename ...
+#
+# About trap:
+#   Usage:
+#     trap <'command'> <Signal-list>
+#   Signal:
+#     0  EXIT  Own exit signal.
+#     1  HUP   Hang up (to reboot).
+#     2  INT   Interrupt (Ctrl+c).
+#     3  QUIT  Quit signal (create coredump).
+#     9  KILL  Force quit (non-catchable, non-ignorable kill).
+#     15 TERM  Default (software termination signal).
+#     18 CONT  Continue.
+#     19 STOP  Suspend.
+#     20 TSTP  Suspend (Ctrl+Z).
+
+# This script status.
+CPID=$$
+CWD=$(cd "$(dirname "$0")" && pwd)
+PROG=$(basename "$0")
+
+# Parse arguments.
+RUN_STATUS=$1
+RUN_SCRIPT_PATH=$2
+RUN_SCRIPT_NAME=$(basename "$2")
+shift 2
+
+if ! echo "$RUN_SCRIPT_PATH" | grep -q '^/\|^\./'; then
+    RUN_SCRIPT_PATH="$CWD/$RUN_SCRIPT_PATH"
+fi
+
+# Set lock and pid file
+#  LOCK_DIR=/var/lock
+#  PID_DIR=/var/run
+LOCK_DIR=${LOCK_DIR:-$CWD}
+PID_DIR=${PID_DIR:-$CWD}
+LOCK_FILE="$LOCK_DIR/$RUN_SCRIPT_NAME".lock
+PID_FILE="$PID_DIR/$RUN_SCRIPT_NAME".pid
+
+PNAME_FOR_PGREP="$PROG start $RUN_SCRIPT_NAME"
+
+# Start script.
+start() {
+    "$RUN_SCRIPT_PATH" "$@"
+}
+
+# Stop script.
+stop() {
+    # Check status.
+    status && return 0
+
+    local pid
+    if [ -e "$PID_FILE" ]; then
+        # Get pid.
+        pid=$(cat "$PID_FILE")
+        if [ -n "$pid" ]; then
+            # Kill the process.
+            echo "kill $pid"
+            kill $pid && return 0
+        fi
+    fi
+    return 1
+}
+
+# See if the process is already running.
+status() {
+    # Check lock file.
+    if [ -e "$LOCK_FILE" ]; then
+        echo "Lock file exists: $LOCK_FILE" 1>&2
+    fi
+
+    # Check pid file.
+    local pid
+    if [ -e "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE")
+        echo "Pid file exists (pid=$pid): $PID_FILE" 1>&2
+        if [ -n "$pid" ]; then
+            if (ps -e | awk '{print $1}' | grep "$pid" >/dev/null); then
+                echo "The process(pid=$pid) is already running." 1>&2
+            else
+                echo "The process(pid=$pid) is not running." 1>&2
+            fi
+        else
+            echo "Pid is not found in pid file." 1>&2
+        fi
+    fi
+
+    # Check other process with pgrep.
+    if type pgrep > /dev/null 2>&1; then
+        local pid_list
+        pid_list=$(pgrep -fl "$PNAME_FOR_PGREP")
+        pid_list=$(echo "$pid_list" | grep -v "^ *$CPID ")
+        if [ -n "$pid" ]; then
+            pid_list=$(echo "$pid_list" | grep -v "^ *$pid ")
+        fi
+        if [ -n "$pid_list" ]; then
+            echo "*** WARNIGN ***"
+            echo "Other process is running (current pid=$CPID):"
+            echo "$pid_list"
+        fi
+    fi
+
+    # Check the results.
+    if [ ! -e "$LOCK_FILE" -a ! -e "$PID_FILE" ]; then
+        echo "The process is not running."
+        return 0
+    fi
+    return 1
+}
+
+create_lock_pid_file() {
+    # Check status.
+    status > /dev/null || return 1
+
+    # Create lock file.
+    if type lockfile > /dev/null 2>&1; then
+        lockfile -r 0 $LOCK_FILE || return 1
+    else
+        touch "$LOCK_FILE" || return 1
+    fi
+
+    # Create pid file.
+    echo "$CPID" > "$PID_FILE"
+    return 0
+}
+
+cleanup() {
+    rm -f "$LOCK_FILE"
+    rm -f "$PID_FILE"
+}
+
+
+# See how we were called.
+RET=0
+case "$RUN_STATUS" in
+    start)
+        # Create lock file.
+        create_lock_pid_file
+        if [ $? -ne 0 ] ; then
+            echo 'Could not run the process!!' 1>&2
+            exit 1
+        fi
+        # Setup trap.
+        trap 'echo "...Traped." 1>&2; cleanup; exit 1;' 1 2 3 15
+
+        start "$@" || RET=1
+
+        # Clean up.
+        cleanup || RET=1
+        ;;
+    stop)
+        stop || RET=1
+        ;;
+    status)
+        status || RET=1
+        ;;
+    restart)
+        stop && start || RET=1
+        ;;
+    *)
+      echo $"Usage: $PROG <start|stop|status> <script> [arguments]"
+      RET=1
+esac
+
+exit $RET
+

@@ -32,10 +32,24 @@ or
 $ /path/to/run-script/run-script start <sample-script directory>/sample-script [arguments]
 ```
 
+## About lock file and pid file
+
 Create lock file (like sample-script.lock) and pid file (like sample-script.pid)
 on the directory where run-script is by default.
 But if you change these directory, run as follows:
 
 ```console
 $ LOCK_DIR=/var/lock PID_DIR=/var/run ./run-script <start|stop|status> <script> [arguments]
+```
+
+## Cron
+
+Sample:
+
+```bash
+$ crontab -l
+SHELL=/bin/bash
+PATH=/usr/local/bin:/bin:/usr/bin
+
+*  00  *  *  * cd /path/to/<sample-script directory> && ./run-script/run-script start ./sample-script 2>&1 | logger -t sample-script -p local0.info
 ```

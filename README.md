@@ -37,5 +37,5 @@ on the directory where run-script is by default.
 But if you change these directory, run as follows:
 
 ```console
-LOCK_DIR=/var/lock PID_DIR=/var/run ./run-script <start|stop|status> <script> [arguments]
+$ LOCK_DIR=/var/lock PID_DIR=/var/run ./run-script <start|stop|status> <script> [arguments]
 ```

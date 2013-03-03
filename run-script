@@ -125,7 +125,7 @@ create_lock_pid_file() {
     if type lockfile > /dev/null 2>&1; then
         lockfile -r 0 $LOCK_FILE || return 1
     else
-        touch "$LOCK_FILE" || return 1
+        ln -s "$CPID" "$LOCK_FILE" 2> /dev/null || return 1
     fi
 
     # Create pid file.
